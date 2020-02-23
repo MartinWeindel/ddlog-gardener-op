@@ -1,0 +1,124 @@
+/* First DDlog example */
+
+import json
+import document
+
+typedef Category = CategoryStarWars
+                 | CategoryOther
+
+input relation Word1(word: string, cat: Category)
+input relation Word2(word: string, cat: Category)
+
+output relation Phrases(phrase: string)
+
+// Rule
+Phrases(w1 ++ " " ++ w2) :- Word1(w1, cat), Word2(w2, cat).
+
+typedef KGroup = KGroupSetup
+                | KGroupCore
+
+typedef Version = V1alpha1
+                  | V1beta1
+                  | V1
+
+typedef Kind = KindLandscapeConfig
+               | KindHelmDeployment
+               | KindComponent
+
+typedef GVK = (KGroup, Version, Kind)
+
+typedef Meta = Meta {
+    namespace: string,
+    name: string
+}
+
+output relation Object(gvk: GVK, meta: Meta, json: string)
+
+typedef LandscapeConfigData = LandscapeConfigData {
+    dns: string,
+    size: u64
+}
+
+
+input relation LandscapeConfig(meta: Meta, data: LandscapeConfigData)
+
+Object(gvk, meta, result) :- 
+  LandscapeConfig(meta, data),
+  var result = result_unwrap_or_default(to_json_string(data)), 
+  var gvk = (KGroupSetup, V1, KindLandscapeConfig).
+
+typedef HelmDeploymentData = HelmDeploymentData {
+    template: string
+}
+
+typedef Source = SourceByGVK {
+    gvk: GVK
+}
+| SourceByMeta {
+    meta: Meta
+} 
+
+typedef Import = Import {
+    source: Source,
+    value: Document
+}
+
+typedef Export = Export {
+   name: string,
+   value: Document
+}
+
+typedef ComponentSpec = ComponentSpec {
+   imports: Vec<Import>,
+   staticExports: Vec<Export>,
+   dynamicExports: Vec<Export>
+} 
+
+
+
+input relation Component(gvk: GVK, meta: Meta, spec: ComponentSpec)
+input relation C1(gvk: GVK)
+input relation C2(meta: Meta)
+input relation C3(s: string)
+input relation C4(s: string, sel: string)
+
+output relation D3(doc: Document)
+output relation D4(docstr: string, sel: string, selDoc: Document)
+
+D3(doc) :- C3(s), var doc = result_unwrap_or(document_from_yaml_string(s), unit()).
+
+D4(docstr, sel, selDoc) :- 
+    C4(s, sel), 
+    var doc = result_unwrap_or(document_from_yaml_string(s), unit()),
+    var docstr = result_unwrap_or(document_to_yaml_string(doc), ""),
+    var selDoc = result_unwrap_or(select(doc, sel), unit()).
+
+output relation IS(doc: Document, b1: bool, b2: bool, b4: bool, b5: bool, b6: bool, b7: bool, b8: bool, b9: bool)
+
+IS(doc, b1, b2, b4, b5, b6, b7, b8, b9) :-
+  D3(doc),
+  var b1 = is_string(doc),
+  var b2 = is_map(doc),
+  var b4 = is_seq(doc),
+  var b5 = is_number(doc),
+  var b6 = is_s64(doc),
+  var b7 = is_u64(doc),
+  var b8 = is_unit(doc),
+  var b9 = is_bool(doc).
+
+output relation AS(doc: Document, 
+   a1: Option<string>, 
+   a2: Option<Map<Document,Document>>, 
+   a4: Option<Vec<Document>>,
+   a5: Option<s64>,
+   a6: Option<u64>,
+   a7: Option<bool>)
+
+AS(doc, a1, a2, a4, a5, a6, a7) :-
+  D3(doc),
+  var a1 = as_string(doc),
+  var a2 = as_map(doc),
+  var a4 = as_seq(doc),
+  var a5 = as_s64(doc),
+  var a6 = as_u64(doc),
+  var a7 = as_bool(doc).

@@ -1,0 +1,149 @@
+import json
+import document
+
+typedef Kind = KindConfig
+               | KindComponent{typeName: string}
+
+typedef SpecStatus = SpecStatus {
+    valid: bool,
+    errors: Vec<string>
+}
+
+output relation Spec(kind: Kind, name: string, valid: bool)
+
+
+input relation Config(name: string, yaml: string)
+
+output relation InternalConfig(name: string, doc: Document, status: SpecStatus)
+
+
+InternalConfig(name, doc, status) :-
+    Config(name, yaml),
+    (var doc, var status) = match (doc_from_yaml_string(yaml)) {
+        Ok{doc} -> (doc, makeSpecStatusValid()),
+        Err{e} -> (doc_unit(), makeSpecStatusInvalid(e))
+    }.
+
+Spec(KindConfig, name, status.valid) :- InternalConfig(name, _, status).
+
+
+typedef Import = Import {
+    name: string,
+    source: Source,
+    select: string
+}
+
+typedef Source = SoureConfig { name: string, selpath: string }
+                 | SourceComponentByName { compName: string, selpath: string }
+                 | SourceByComponentByType { compType: string, optCompName: Option<string>, selpath: string }
+
+typedef Export = Export {
+    name: string
+}
+
+
+input relation Component(name: string, typeName: string, spec: string)
+
+output relation InternalComponent(name: string, kind: Kind, 
+    imports: Map<string,Import>, exports: Map<string,Export>, status: SpecStatus)
+
+InternalComponent(name, KindComponent{typeName}, imports, exports, status) :- 
+    Component(name, typeName, spec),
+    (var imports, var exports, var status) = parseComponentSpec(spec).
+
+Spec(kind, name, status.valid) :- InternalComponent(name, kind, _, _, status).
+
+function makeSpecStatusValid() : SpecStatus =
+{
+    var noErrs : Vec<string> = vec_empty();
+    SpecStatus{true,noErrs}
+}
+
+function makeSpecStatusInvalid(e: string) : SpecStatus =
+{
+    var errs : Vec<string> = vec_empty();
+    vec_push(errs, e);
+    SpecStatus{false,errs}
+}
+
+function parseComponentSpec(yaml: string) : (Map<string,Import>, Map<string,Export>, SpecStatus) = 
+{
+    var imports: Map<string,Import> = map_empty();
+    var exports: Map<string,Export> = map_empty();
+    var errs : Vec<string> = vec_empty();
+    var doc = doc_unit();
+
+    match (doc_from_yaml_string(yaml)) {
+        Ok{d} -> doc = d,
+        Err{e} ->
+          vec_push(errs, e);
+          return (imports, exports, SpecStatus{false,errs})
+    };
+
+    match (doc_select(doc, ".imports")) {
+        Ok{d} ->
+          match (doc_as_map(d)) {
+              Some{map} ->
+                (var imps, var importsErrs) = parseComponentImports(map);
+                imports = imps;
+                vec_append(errs, importsErrs),
+              None ->
+                if (not doc_is_unit(d)) {
+                    vec_push(errs, "Imports must be a map");
+                    return (imports, exports, SpecStatus{false,errs})
+                } 
+          },
+        Err{e} ->
+          return (imports, exports, SpecStatus{false,errs})
+    };
+
+    // TODO exports
+    (imports, exports, SpecStatus{vec_is_empty(errs), errs})
+}
+
+function parseComponentImports(map: Map<Document,Document>) : (Map<string,Import>, Vec<string>) =
+{
+    var imports: Map<string,Import> = map_empty();
+    var errs : Vec<string> = vec_empty();
+
+    for (entry in map) {
+        (var k, var v) = entry;
+        match (doc_as_string(k)) {
+            Some{key} ->
+                match (doc_select(v, ".sourceType")) {
+                    Ok{st} ->
+                        match (doc_as_string(st)) {
+                            Some{"config"} ->
+                                match (parseSourceTypeConfig(key, v)) {
+                                    Ok{imp} -> map_insert(imports, key, imp),
+                                    Err{e} -> vec_push(errs, e)
+                                },
+                            Some{"component"} ->
+                                match (parseSourceTypeComponent(key, v)) {
+                                    Ok{imp} -> map_insert(imports, key, imp),
+                                    Err{e} -> vec_push(errs, e)
+                                },
+                            Some{x} ->
+                                vec_push(errs, "imports: invalid sourceType ${x} for key ${key}"),
+                            None ->
+                                vec_push(errs, "imports: invalid sourceType value for key ${key}")
+                        },
+                    Err{e} ->
+                        vec_push(errs, "imports: select sourceType failed with ${e}")
+                },
+            None ->
+                vec_push(errs, "imports: invalid key:${k}")
+        }
+    };
+    (imports, errs)
+}
+
+function parseSourceTypeConfig(key: string, value: Document) : Result<Import, string> = 
+{
+    Err{"not yet implemented"}
+}
+
+function parseSourceTypeComponent(key: string, value: Document) : Result<Import, string> = 
+{
+    Err{"not yet implemented comp"}
+}

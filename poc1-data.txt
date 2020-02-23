@@ -1,0 +1,44 @@
+start;
+
+insert Config("landscape", "
+garden:
+  name: demo
+  user:
+    name: techuser
+    username: techuser
+    password: abcd
+  infrastructures:
+  - aws
+  - google
+  - azure
+");
+
+insert Component("comp1", "kubectl-apply","
+imports:
+  landscapeName:
+    sourceType: config
+    name: landscape
+    select: .garden.name
+  user:
+    sourceType: config
+    name: landscape
+    select: .garden.user
+  primaryInfra:
+    sourceType: config
+    name: landscape
+    select: .garden.infrastructures[0]
+");
+
+insert Component("comp2", "helm","
+imports:
+  landscapeName:
+    sourceType: config
+    name: landscape
+    select: .garden.name
+  comp2_data:
+    sourceType: component
+    name: comp1
+    select: .somedata
+");
+
+commit;
