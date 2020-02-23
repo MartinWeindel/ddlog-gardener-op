@@ -29,13 +29,12 @@ Spec(KindConfig, name, status.valid) :- InternalConfig(name, _, status).
 
 typedef Import = Import {
     name: string,
-    source: Source,
-    select: string
+    source: Source
 }
 
-typedef Source = SoureConfig { name: string, selpath: string }
-                 | SourceComponentByName { compName: string, selpath: string }
-                 | SourceByComponentByType { compType: string, optCompName: Option<string>, selpath: string }
+typedef Source = SourceConfig { name: string, select: string }
+                 | SourceComponentByName { compName: string, select: string }
+                 | SourceComponentByType { compType: string, optCompName: Option<string>, select: string }
 
 typedef Export = Export {
     name: string
@@ -140,10 +139,78 @@ function parseComponentImports(map: Map<Document,Document>) : (Map<string,Import
 
 function parseSourceTypeConfig(key: string, value: Document) : Result<Import, string> = 
 {
-    Err{"not yet implemented"}
+    var name = "";
+    var select = "";
+    match (extractStringField(value, "name")) {
+        Ok{s} -> name = s,
+        Err{e} -> return Err{"imports: key ${key}: ${e}"}
+    };
+    match (extractStringField(value, "select")) {
+        Ok{s} -> select = s,
+        Err{e} -> return Err{"imports: key ${key}: ${e}"}
+    };
+    Ok{Import{key, SourceConfig{name, select}}}
 }
 
 function parseSourceTypeComponent(key: string, value: Document) : Result<Import, string> = 
 {
-    Err{"not yet implemented comp"}
+    var name : Option<string> = None;
+    var typeName : Option<string> = None;
+    var select = "";
+    match (extractOptionalStringField(value, "name")) {
+        Ok{s} -> name = s,
+        Err{e} -> return Err{"imports: key ${key}: ${e}"}
+    };
+    match (extractOptionalStringField(value, "type")) {
+        Ok{s} -> typeName = s,
+        Err{e} -> return Err{"imports: key ${key}: ${e}"}
+    };
+    match (extractStringField(value, "select")) {
+        Ok{s} -> select = s,
+        Err{e} -> return Err{"imports: key ${key}: ${e}"}
+    };
+    match (typeName) {
+        Some{s} ->
+            Ok{Import{key, SourceComponentByType{s, name, select}}},
+        None ->
+            match (name) {
+                Some{s} ->
+                    Ok{Import{key, SourceComponentByName{s, select}}},
+                None ->
+                    Err{"imports: key ${key}: either name or type must be set"}
+            }
+    }
+}
+
+function extractStringField(value: Document, key: string) : Result<string, string> = 
+{
+     match (doc_select(value, ".${key}")) {
+        Ok{d} ->
+            match (doc_as_string(d)) {
+                Some{s} ->
+                    Ok{s},
+                None ->
+                    Err{"${key} value must be a string"}
+            },
+        Err{e} ->
+            Err{"${key} field not found"}
+    }
+}
+
+function extractOptionalStringField(value: Document, key: string) : Result<Option<string>, string> = 
+{
+     match (doc_select(value, ".${key}")) {
+        Ok{d} ->
+            match (doc_as_string(d)) {
+                Some{s} ->
+                    Ok{Some{s}},
+                None ->
+                    if (not doc_is_unit(d)) {
+                        return Err{"optional ${key} value must be a string"}
+                    };
+                    Ok{None}
+            },
+        Err{e} ->
+            Err{"${key} field not found"}
+    }
 }
