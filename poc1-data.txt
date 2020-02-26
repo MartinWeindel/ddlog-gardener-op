@@ -26,7 +26,9 @@ imports:
   primaryInfra:
     sourceType: config
     name: landscape
-    select: .garden.infrastructures[0]
+    select: .garden.infrastructures.[0]
+exports:
+  somedata: {}
 ");
 
 insert Component("comp2", "helm","
@@ -39,6 +41,17 @@ imports:
     sourceType: component
     name: comp1
     select: .somedata
+");
+
+commit;
+
+start;
+
+insert CompExports("comp1", "
+somedata:
+  a: b
+  c: 42
+other: false
 ");
 
 commit;

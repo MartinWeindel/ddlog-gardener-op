@@ -33,8 +33,9 @@ typedef Import = Import {
 }
 
 typedef Source = SourceConfig { name: string, select: string }
-                 | SourceComponentByName { compName: string, select: string }
-                 | SourceComponentByType { compType: string, optCompName: Option<string>, select: string }
+                 | SourceComponentByName { name: string, select: string }
+                 | SourceComponentByType { compType: string, select: string }
+                 | SourceComponentByTypeAndName { compType: string, name: string, select: string }
 
 typedef Export = Export {
     name: string
@@ -52,6 +53,66 @@ InternalComponent(name, KindComponent{typeName}, imports, exports, status) :-
 
 Spec(kind, name, status.valid) :- InternalComponent(name, kind, _, _, status).
 
+output relation CompImportTmp(name: string, imp: Import)
+
+output relation CompImportDetail(name: string, importName: string, result: Result<Document,string>)
+output relation InternalCompImports(name: string, doc: Document)
+
+output relation CompImportCount(name: string, ok: bool, count: bit<64>)
+output relation CompImportReady(name: string)
+
+input relation CompExports(name: string, yaml: string)
+output relation InternalCompExports(name: string, result: Result<Document,string>)
+
+InternalCompExports(name, result) :-
+    CompExports(name, yaml),
+    var result = doc_from_yaml_string(yaml).
+
+CompImportTmp(name, imp) :- 
+    InternalComponent(name, _, imports, _, status), 
+    status.valid, 
+    var entry = FlatMap(imports),
+    (var key, var imp) = entry.
+
+CompImportDetail(name, imp.name, result) :-
+    CompImportTmp(name, imp),
+    SourceConfig{.name = var configName, .select = var select} = imp.source,
+    InternalConfig(configName, doc, status),
+    status.valid,
+    var result = doc_select(doc, select).
+
+CompImportDetail(name, imp.name, result) :-
+    CompImportTmp(name, imp),
+    SourceComponentByName{.name = var compName, .select = var select} = imp.source,
+    InternalCompExports(compName, exportResult),
+    Ok{var doc} = exportResult,
+    var result = doc_select(doc, select).
+
+CompImportCount(name, false, count) :-
+    InternalComponent(name, _, imports, _, status),
+    status.valid, 
+    CompImportTmp(name, imp),
+    var count = Aggregate((name), group_count(imp)).
+
+CompImportCount(name, true, count) :- 
+    InternalComponent(name, _, imports, _, status),
+    status.valid, 
+    CompImportDetail(name, imp, Ok{value}),
+    not doc_is_unit(value),
+    var count = Aggregate((name), group_count(imp)).
+
+CompImportReady(name) :-
+    CompImportCount(name, true, readyCount),
+    CompImportCount(name, false, totalCount),
+    readyCount == totalCount.
+
+InternalCompImports(name, doc) :-
+    CompImportReady(name),
+    CompImportDetail(name, key, Ok{value}),
+    var m = Aggregate((name), group2map((key, value))),
+    var doc = doc_from_map(m).
+
+
 function makeSpecStatusValid() : SpecStatus =
 {
     var noErrs : Vec<string> = vec_empty();
@@ -60,9 +121,7 @@ function makeSpecStatusValid() : SpecStatus =
 
 function makeSpecStatusInvalid(e: string) : SpecStatus =
 {
-    var errs : Vec<string> = vec_empty();
-    vec_push(errs, e);
-    SpecStatus{false,errs}
+    SpecStatus{false,vec_singleton(e)}
 }
 
 function parseComponentSpec(yaml: string) : (Map<string,Import>, Map<string,Export>, SpecStatus) = 
@@ -96,7 +155,23 @@ function parseComponentSpec(yaml: string) : (Map<string,Import>, Map<string,Expo
           return (imports, exports, SpecStatus{false,errs})
     };
 
-    // TODO exports
+    match (doc_select(doc, ".exports")) {
+        Ok{d} ->
+          match (doc_as_map(d)) {
+              Some{map} ->
+                (var exps, var exportsErrs) = parseComponentExports(map);
+                exports = exps;
+                vec_append(errs, exportsErrs),
+              None ->
+                if (not doc_is_unit(d)) {
+                    vec_push(errs, "Exports must be a map");
+                    return (imports, exports, SpecStatus{false,errs})
+                } 
+          },
+        Err{e} ->
+          return (imports, exports, SpecStatus{false,errs})
+    };
+
     (imports, exports, SpecStatus{vec_is_empty(errs), errs})
 }
 
@@ -171,7 +246,12 @@ function parseSourceTypeComponent(key: string, value: Document) : Result<Import,
     };
     match (typeName) {
         Some{s} ->
-            Ok{Import{key, SourceComponentByType{s, name, select}}},
+            match (name) {
+                Some{s2} ->
+                    Ok{Import{key, SourceComponentByTypeAndName{s, s2, select}}},
+                None ->
+                    Ok{Import{key, SourceComponentByType{s, select}}}
+            },
         None ->
             match (name) {
                 Some{s} ->
@@ -182,9 +262,26 @@ function parseSourceTypeComponent(key: string, value: Document) : Result<Import,
     }
 }
 
+function parseComponentExports(map: Map<Document,Document>) : (Map<string,Export>, Vec<string>) =
+{
+    var exports: Map<string,Export> = map_empty();
+    var errs : Vec<string> = vec_empty();
+
+    for (entry in map) {
+        (var k, var v) = entry;
+        match (doc_as_string(k)) {
+            Some{key} ->
+                map_insert(exports, key, Export{key}),
+            None ->
+                vec_push(errs, "exports: invalid key:${k}")
+        }
+    };
+    (exports, errs)
+}
+
 function extractStringField(value: Document, key: string) : Result<string, string> = 
 {
-     match (doc_select(value, ".${key}")) {
+    match (doc_select(value, ".${key}")) {
         Ok{d} ->
             match (doc_as_string(d)) {
                 Some{s} ->
@@ -199,7 +296,7 @@ function extractStringField(value: Document, key: string) : Result<string, strin
 
 function extractOptionalStringField(value: Document, key: string) : Result<Option<string>, string> = 
 {
-     match (doc_select(value, ".${key}")) {
+    match (doc_select(value, ".${key}")) {
         Ok{d} ->
             match (doc_as_string(d)) {
                 Some{s} ->
