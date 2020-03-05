@@ -55,3 +55,34 @@ other: false
 ");
 
 commit;
+
+
+start;
+
+insert Component("comp3", "helm","
+imports:
+  landscapeName:
+    sourceType: config
+    name: landscape
+    select: .garden.name
+  comp2_data:
+    sourceType: component
+    name: comp1
+    select: .somedata
+exports:
+  exp3: {}
+");
+
+insert Component("comp4", "helm","
+imports:
+  landscapeName:
+    sourceType: config
+    name: landscape
+    select: .garden.name
+  exp3:
+    sourceType: component
+    name: comp3
+    select: .exp3
+");
+
+commit;

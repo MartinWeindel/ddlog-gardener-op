@@ -1,4 +1,5 @@
-DL=poc1
+#DL=poc1
+DL=poc2
 LIB=../differential-datalog/lib
 
 

@@ -1,0 +1,11 @@
+[package]
+name = "poc2_wrapper"
+version = "0.1.0"
+authors = ["Martin Weindel <martin.weindel@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+poc2 = { path = "../poc2_ddlog"}
+differential_datalog = { path = "../poc2_ddlog/differential_datalog"}

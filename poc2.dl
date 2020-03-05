@@ -1,0 +1,108 @@
+import json
+import document
+
+typedef Kind = KindConfig
+               | KindComponent{typeName: string}
+
+typedef SpecStatus = SpecStatus {
+    valid: bool,
+    errors: Vec<string>
+}
+
+
+typedef Source = SourceConfig { cname: string, select: string }
+                 | SourceComponentSpec { cname: string, select: string }
+                 | SourceComponentExport { cname: string, exportName: string, select: string }
+
+
+input relation Config(cname: string, spec: Result<Document,string>)
+
+input relation Component(cname: string, typeName: string, spec: Result<Document,string>)
+
+input relation ComponentImport(cname: string, importName: string, source: Source)
+
+input relation ComponentExport(cname: string, exportName: string)
+
+input relation ComponentExportSpec(cname: string, exportName: string, spec: Result<Document,string>)
+
+
+output relation Spec(kind: Kind, cname: string, valid: bool)
+
+Spec(KindConfig, cname, is_ok(spec)) :- Config(cname, spec).
+Spec(KindComponent{typeName}, cname, is_ok(spec)) :- Component(cname, typeName, spec).
+
+
+output relation CompImportSpec(cname: string, importName: string, spec: Result<Document,string>)
+
+CompImportSpec(cname, importName, spec) :-
+    ComponentImport(cname, importName, SourceConfig{.cname = sourceCompName, .select = select}),
+    Config(sourceCompName, Ok{fullSpec}),
+    var spec = doc_select(fullSpec, select).
+
+CompImportSpec(cname, importName, spec) :-
+    ComponentImport(cname, importName, SourceComponentSpec{.cname = sourceCompName, .select = select}),
+    Component(sourceCompName, _, Ok{fullSpec}),
+    var spec = doc_select(fullSpec, select).
+
+CompImportSpec(cname, importName, spec) :-
+    ComponentImport(cname, importName, SourceComponentExport{.cname = sourceCompName, .exportName = exportName, .select = select}),
+    ComponentExportSpec(sourceCompName, exportName, Ok{fullSpec}),
+    var spec = doc_select(fullSpec, select).
+
+
+output relation Dependency(from: string, to: string)
+
+Dependency(from, to) :-
+    ComponentImport(from, _, SourceConfig{.cname = to, .select = select}).
+
+Dependency(from, to) :-
+    ComponentImport(from, _, SourceComponentSpec{.cname = to, .select = select}).
+
+Dependency(from, to) :-
+    ComponentImport(from, _, SourceComponentExport{.cname = to, .exportName = en, .select = select}).
+
+
+output relation LevelTmp(name: string, level: u32)
+
+LevelTmp(name, 0) :- Config(name, _).
+LevelTmp(name, 0) :- Component(name, _, _).
+
+LevelTmp(name, l + 1) :-
+    Dependency(name, to),
+    LevelTmp(to, l).
+
+
+output relation Level(name: string, level: u32)
+
+Level(name, level) :-
+    LevelTmp(name, l),
+    var level = Aggregate((name), group_max(l)).
+
+
+output relation CompImportCount(cname: string, okOnly: bool, count: bit<64>)
+
+CompImportCount(cname, false, count) :-
+    ComponentImport(cname, importName, _),
+    var count = Aggregate((cname), group_count(importName)).
+
+CompImportCount(cname, true, count) :- 
+    CompImportSpec(cname, importName, Ok{doc}),
+    not doc_is_unit(doc),
+    var count = Aggregate((cname), group_count(importName)).
+
+
+output relation CompImportReady(cname: string)
+
+CompImportReady(cname) :-
+    CompImportCount(cname, true, readyCount),
+    CompImportCount(cname, false, totalCount),
+    readyCount == totalCount.
+
+
+output relation InternalCompImports(cname: string, doc: Document)
+
+InternalCompImports(cname, doc) :-
+    CompImportReady(cname),
+    CompImportSpec(cname, key, Ok{value}),
+    var m = Aggregate((cname), group2map((key, value))),
+    var doc = doc_from_map(m).

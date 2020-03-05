@@ -53,6 +53,13 @@ InternalComponent(name, KindComponent{typeName}, imports, exports, status) :-
 
 Spec(kind, name, status.valid) :- InternalComponent(name, kind, _, _, status).
 
+output relation LevelTmp(name: string, level: u32)
+output relation Level(name: string, level: u32)
+output relation Dependency(from: string, to: string)
+
+LevelTmp(name, 0) :- Config(name, _).
+LevelTmp(name, 0) :- Component(name, _, _).
+
 output relation CompImportTmp(name: string, imp: Import)
 
 output relation CompImportDetail(name: string, importName: string, result: Result<Document,string>)
@@ -87,6 +94,22 @@ CompImportDetail(name, imp.name, result) :-
     InternalCompExports(compName, exportResult),
     Ok{var doc} = exportResult,
     var result = doc_select(doc, select).
+
+Dependency(from, to) :-
+    CompImportTmp(from, imp),
+    SourceConfig{.name = var to, .select = var select} = imp.source.
+
+Dependency(from, to) :-
+    CompImportTmp(from, imp),
+    SourceComponentByName{.name = var to, .select = var select} = imp.source.
+
+LevelTmp(name, l + 1) :-
+    Dependency(name, to),
+    LevelTmp(to, l).
+
+Level(name, level) :-
+    LevelTmp(name, l),
+    var level = Aggregate((name), group_max(l)).
 
 CompImportCount(name, false, count) :-
     InternalComponent(name, _, imports, _, status),
