@@ -8,4 +8,8 @@ edition = "2018"
 
 [dependencies]
 poc2 = { path = "../poc2_ddlog"}
+types = { path = "../poc2_ddlog/types"}
 differential_datalog = { path = "../poc2_ddlog/differential_datalog"}
+notify = "4.0.12"
+unstructured = "0.3.1"
+serde_yaml = "0.8"
